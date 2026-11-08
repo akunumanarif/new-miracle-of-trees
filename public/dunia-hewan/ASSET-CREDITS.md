@@ -12,10 +12,13 @@ License: https://creativecommons.org/publicdomain/zero/1.0/
   `stag`, `wolf`: Quaternius, Ultimate Animated Animal Pack.
   Original: https://quaternius.com/packs/ultimateanimatedanimals.html
   Downloaded GLBs: https://github.com/danwahl/animasim/tree/main/assets/generated/glb
-  These GLBs were reduced to the idle animation used by the page.
+  GLBs retain authored idle, walk, eating, gallop and attack clips where available.
+  Death clips are excluded. Reproducible preparation: `scripts/prepare-wildlife-animations.mjs`.
 - `Llama`, `Pig`, `Pug`, `Sheep`, `Zebra`: Farm Animals Pack by Quaternius.
   https://opengameart.org/content/lowpoly-animated-farm-animal-pack
-  OBJ/MTL converted to GLB with Three.js; flat, rough materials.
+  FBX converted to GLB with Three.js; flat, rough materials. Zebra rotation-only
+  walk/run tracks are transferred to the shared farm skeleton, preserving each
+  animal’s bone positions and proportions.
 - `Chick`: Animals Pack by Quaternius.
   https://opengameart.org/content/5-low-poly-animals
   OBJ/MTL converted to GLB; recolored yellow and orange.
@@ -32,18 +35,21 @@ License: https://creativecommons.org/licenses/by/3.0/
 | Bear (Black bear) | Poly by Google | https://poly.pizza/m/56ym_pyVnel |
 | Tiger | Poly by Google | https://poly.pizza/m/5A3w06FXUup |
 | Duck | Poly by Google | https://poly.pizza/m/6HpauUCfIAb |
+| Goose | Poly by Google | https://poly.pizza/m/9wn3If7Qgb4 |
 | Cat | Poly by Google | https://poly.pizza/m/6dM1J6f6pm9 |
 | Parrot | Poly by Google | https://poly.pizza/m/dfNjMLtO0pd |
 | Flamingo | Хмара Сергей | https://poly.pizza/m/5hUIvLVFqet |
 | Stork (White stork) | Gwym Hendawyr | https://poly.pizza/m/aRlrdbGgvQC |
 
-Models are scaled and repositioned in the scene. Static birds are given gentle
-flight paths by application code. Embedded textures may be resized for the web.
+Models are scaled and repositioned in the scene. Static animals receive application-generated skeletal weights for legs/head;
+birds receive additional articulated wing geometry and flight paths. Original
+silhouettes and materials are retained. Chasing and sparring are non-violent
+play behaviors in this imaginary mixed-habitat world. Embedded textures may be resized for the web.
 No endorsement by the original creators is implied.
 
 ## Animal recordings — audited replacement, 8 November 2026
 
-All 27 animal buttons use separate, source-verified real recordings. There is no
+All 28 animal buttons use separate, source-verified real recordings. There is no
 synthesizer fallback and no reuse of one dog clip for different breeds. A recordist
 description naming the animal was required; human imitations and ambiguous animal
 identifications were excluded. Each selected MP3 is downloaded and served locally.
@@ -84,6 +90,8 @@ animal is sounding.
 | `elephant` / `elephant-recording-v2.mp3` | தகவலுழவன் (Info-farmer) | [Elephant_voice_-_trumpeting.ogg](https://commons.wikimedia.org/wiki/File:Elephant_voice_-_trumpeting.ogg) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | 0s + 1.45s |
 | `bear` / `bear-recording-v2.mp3` | U.S. Fish & Wildlife Service; prepared by AntumDeluge | [Bear Growls — bear_01](https://opengameart.org/content/bear-growls) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | 0s + 1.068s |
 | `zebra` / `zebra-recording-v2.mp3` | Peet J van Eeden; prepared by AntumDeluge | [Zebra Whinny](https://opengameart.org/content/zebra-whinny) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) | 0s + 2.229s |
+
+| `goose` / `goose-recording-v2.mp3` | el_boss | [Goose Trumpet (loud honk) - Best Capture](https://freesound.org/people/el_boss/sounds/740197/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | 0s + 0.535s |
 
 The Freesound sources use their publicly available HQ MP3 previews. License
 links and creator credits apply to the recordings, independently of file format.

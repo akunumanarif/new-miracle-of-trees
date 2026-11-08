@@ -3,8 +3,9 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Binoculars, BookOpen, Check, ChevronLeft, ChevronRight, Compass, Headphones, Leaf, Maximize, Minus, Moon, Plus, RotateCcw, Search, Sparkles, Sun, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Binoculars, BookOpen, Check, ChevronLeft, ChevronRight, Compass, Headphones, Leaf, Maximize, Minus, Moon, Pause, Play, Plus, RotateCcw, Search, Sparkles, Sun, Volume2, VolumeX, X } from "lucide-react";
 import { ANIMALS, HABITATS, type Animal, type Habitat } from "./animals";
+import { Wildlife, activityLabel } from "./wildlife";
 import { AnimalAudio } from "./animal-audio";
 import type { ViewRequest } from "./world-scene";
 
@@ -12,6 +13,10 @@ const WorldScene = dynamic(() => import("./world-scene"), { ssr: false });
 const STORAGE_KEY = "mot-dunia-hewan-discoveries-v1";
 
 export default function AnimalWorld() {
+  const [simulation] = useState(() => new Wildlife(ANIMALS));
+  const minimapMarkers = useRef(new Map<string, HTMLButtonElement>());
+  const [paused, setPaused] = useState(false);
+  const [activity, setActivity] = useState("");
   const [selected, setSelected] = useState<Animal | null>(null);
   const [found, setFound] = useState<string[]>([]);
   const [muted, setMuted] = useState(false);
@@ -71,14 +76,16 @@ export default function AnimalWorld() {
 
   const select = useCallback((animal: Animal) => {
     setSelected(animal); setStarted(true); setCollection(false); setHabitat(animal.habitat);
-    setView(v => ({ point: animal.position, zoom: animal.flying ? 26 : 22, focus: true, serial: v.serial + 1 }));
+    const agent = simulation.agents.get(animal.id);
+    setActivity(agent ? activityLabel(agent) : "");
+    setView(v => ({ point: agent ? [...agent.position] : animal.position, zoom: animal.flying ? 26 : 22, focus: true, serial: v.serial + 1 }));
     setFound(previous => {
       const next = previous.includes(animal.id) ? previous : [...previous, animal.id];
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* discovery still works without storage */ }
       return next;
     });
     play(animal);
-  }, [play]);
+  }, [play, simulation]);
 
   const onReady = useCallback(() => { setReady(true); setFailed(false); }, []);
   const onError = useCallback(() => { setFailed(true); setReady(true); }, []);
@@ -97,7 +104,7 @@ export default function AnimalWorld() {
 
   return <main className={`dw-world ${night ? "dw-night" : ""} ${selected ? "dw-has-selection" : ""}`} ref={world}>
     <div className="dw-scene" aria-label="Peta hutan 3D interaktif. Geser untuk menjelajah, ketuk hewan untuk berkenalan.">
-      <WorldScene selected={selected?.id ?? null} night={night} reducedMotion={reducedMotion} view={view} onSelect={select} onReady={onReady} onError={onError} />
+      <WorldScene simulation={simulation} paused={paused} minimapMarkers={minimapMarkers.current} onActivity={setActivity} selected={selected?.id ?? null} night={night} reducedMotion={reducedMotion} view={view} onSelect={select} onReady={onReady} onError={onError} />
     </div>
     <div className="dw-vignette" />
 
@@ -124,6 +131,7 @@ export default function AnimalWorld() {
     {selected && <section className="dw-animal-card" aria-label={`Kenalan dengan ${selected.name}`}>
       <button className="dw-card-close" onClick={() => { setSelected(null); audio.current?.stop(); }} aria-label="Tutup kartu hewan"><X size={17} /></button>
       <div className="dw-card-top"><span className="dw-animal-portrait">{selected.emoji}</span><div><span className="dw-eyebrow">{selected.flying ? "TEMAN BERSAYAP" : "KENALAN, YUK!"}</span><h2>{selected.name}</h2><span className="dw-english">{selected.english} <i>·</i> {HABITATS[selected.habitat].name}</span></div></div>
+      <div className="dw-activity"><span className="dw-live-dot" />{paused || reducedMotion ? "Gerakan dijeda" : activity}</div>
       <p className="dw-fact">“{selected.fact}”</p>
       <div className="dw-food"><Leaf size={14} /><span>Makananku: {selected.food}</span></div>
       <button className="dw-play" onClick={() => { if (muted) { setMuted(false); void audio.current?.play(selected).catch(() => setMessage("Suara belum dapat diputar.")); } else play(selected); }}><Volume2 size={19} /><span>{selected.audioLabel ?? "Dengarkan suaraku"} <small>{selected.call}</small></span><span className="dw-sound-bars"><i /><i /><i /><i /></span></button>
@@ -137,9 +145,9 @@ export default function AnimalWorld() {
       else setMessage("Gunakan mode lanskap untuk melihat peta lebih luas.");
     }} aria-label="Layar penuh"><Maximize size={17} /></button></aside>
 
-    <aside className="dw-minimap" aria-label="Peta kecil"><span className="dw-minimap-title"><Compass size={12} /> PETA KECIL <b>U ↑</b></span><div className="dw-mini-island"><div className="dw-mini-water" />{ANIMALS.map(a => <button key={a.id} title={a.name} aria-label={`Temukan ${a.name} di peta`} onClick={() => select(a)} className={`${found.includes(a.id) ? "found" : ""} ${selected?.id === a.id ? "selected" : ""}`} style={{ left: `${(a.position[0] + 35) / 70 * 100}%`, top: `${(a.position[2] + 35) / 70 * 100}%` }} />)}</div><span className="dw-mini-caption">Dunia kecil, banyak cerita.</span></aside>
+    <aside className="dw-minimap" aria-label="Peta kecil"><span className="dw-minimap-title"><Compass size={12} /> PETA KECIL <b>U ↑</b></span><div className="dw-mini-island"><div className="dw-mini-water" />{ANIMALS.map(a => <button key={a.id} ref={element => { if (element) minimapMarkers.current.set(a.id, element); else minimapMarkers.current.delete(a.id); }} title={a.name} aria-label={`Temukan ${a.name} di peta`} onClick={() => select(a)} className={`${found.includes(a.id) ? "found" : ""} ${selected?.id === a.id ? "selected" : ""}`} style={{ left: `${(a.position[0] + 35) / 70 * 100}%`, top: `${(a.position[2] + 35) / 70 * 100}%` }} />)}</div><span className="dw-mini-caption">Dunia kecil, banyak cerita.</span></aside>
 
-    <div className="dw-bottom-area"><div className="dw-bottom-info"><span><span className="dw-live-dot" /> {night ? "Malam yang tenang" : "Hari yang indah untuk menjelajah"}</span><span className="dw-gesture-hint">Geser untuk menjelajah <i>·</i> Cubit / scroll untuk zoom</span><button className={ambient ? "is-playing" : ""} onClick={toggleAmbient} aria-pressed={ambient}><Headphones size={14} /> Suasana hutan {ambient ? "aktif" : ""}</button></div>
+    <div className="dw-bottom-area"><div className="dw-bottom-info"><span><span className="dw-live-dot" /> {night ? "Malam yang tenang" : "Hari yang indah untuk menjelajah"}</span><span className="dw-gesture-hint">Geser untuk menjelajah <i>·</i> Cubit / scroll untuk zoom</span><button onClick={() => setPaused(value => !value)} aria-pressed={paused} disabled={reducedMotion} aria-label={paused ? "Lanjutkan gerakan hewan" : "Jeda gerakan hewan"}>{paused ? <Play size={14} /> : <Pause size={14} />}{paused ? "Lanjutkan" : "Jeda hewan"}</button><button className={ambient ? "is-playing" : ""} onClick={toggleAmbient} aria-pressed={ambient}><Headphones size={14} /> Suasana hutan {ambient ? "aktif" : ""}</button></div>
       <section className="dw-animal-tray" aria-label="Pilih teman hewan"><button className="dw-tray-heading" onClick={() => setCollection(true)}><span className="dw-tray-icon"><Binoculars size={22} /></span><span>Siapa yang ingin<br /><b>kamu temui?</b></span><ChevronRight size={16} /></button><button className="dw-rail-arrow" aria-label="Geser daftar ke kiri" onClick={() => rail.current?.scrollBy({ left: -280, behavior: reducedMotion ? "instant" : "smooth" })}><ChevronLeft size={17} /></button><div className="dw-rail" ref={rail}>{ANIMALS.map(a => <button key={a.id} className={`dw-animal-tile ${selected?.id === a.id ? "is-selected" : ""}`} onClick={() => select(a)} aria-label={`Temui ${a.name}`} aria-pressed={selected?.id === a.id}><span className="dw-tile-emoji">{a.emoji}</span><span>{a.name}</span>{found.includes(a.id) && <i><Check size={9} /></i>}{a.flying && <small>TERBANG</small>}</button>)}</div><button className="dw-rail-arrow" aria-label="Geser daftar ke kanan" onClick={() => rail.current?.scrollBy({ left: 280, behavior: reducedMotion ? "instant" : "smooth" })}><ChevronRight size={17} /></button></section>
       <div className="dw-footer"><span>Dibuat untuk rasa ingin tahu yang tak pernah habis.</span><button onClick={() => setCredits(true)}>Tentang dunia ini <Sparkles size={11} /></button></div>
     </div>
@@ -149,7 +157,7 @@ export default function AnimalWorld() {
 
     {(collection || credits) && <div className="dw-modal-backdrop" onClick={() => { setCollection(false); setCredits(false); }}><div className={`dw-modal ${credits ? "dw-credits" : ""}`} role="dialog" aria-modal="true" aria-labelledby="dw-dialog-title" ref={dialog} onClick={e => e.stopPropagation()}>
       <button className="dw-modal-close" aria-label="Tutup jendela" onClick={() => { setCollection(false); setCredits(false); }}><X size={20} /></button>
-      {collection ? <><span className="dw-eyebrow">BUKU PETUALANGANMU</span><h2 id="dw-dialog-title">Teman-teman kecilku <span>🌿</span></h2><p>{found.length} dari {ANIMALS.length} teman sudah kamu sapa. Siapa berikutnya?</p><label className="dw-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Cari nama hewan…" aria-label="Cari hewan" /></label><div className="dw-filters">{[["semua", "Semua teman"], ["darat", "🐾 Di darat"], ["terbang", "🪽 Bisa terbang"], ["ditemukan", "✓ Ditemukan"]].map(([id, name]) => <button key={id} className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)}>{name}</button>)}</div><div className="dw-collection-grid">{filtered.map(a => <button key={a.id} onClick={() => select(a)}><span>{a.emoji}</span><b>{a.name}</b><small>{a.english}</small><i className={found.includes(a.id) ? "found" : ""}>{found.includes(a.id) ? <><Check size={12} /> Ditemukan</> : "Ayo berkenalan"}</i></button>)}{!filtered.length && <p className="dw-no-results">Belum ada hewan di sini. Coba nama atau pilihan lain, ya.</p>}</div></> : <><span className="dw-eyebrow">MIRACLE OF TREES</span><h2 id="dw-dialog-title">Dunia kecil untuk<br />rasa ingin tahu besar.</h2><p>Tempat bermain dan berkenalan dengan hewan melalui bentuk, gerak, dan suara. Hewan dari berbagai habitat berkumpul di dunia imajinasi ini.</p><p><b>Aset & kredit</b><br />Model hewan oleh <a href="https://quaternius.com/packs/ultimateanimatedanimals.html" target="_blank" rel="noreferrer">Quaternius</a> (CC0), dikonversi oleh <a href="https://github.com/danwahl/animasim" target="_blank" rel="noreferrer">animasim</a>. Model ternak dan anak ayam dari <a href="https://opengameart.org/content/lowpoly-animated-farm-animal-pack" target="_blank" rel="noreferrer">OpenGameArt</a> (CC0). Model satwa lain oleh Poly by Google, Хмара Сергей, dan Gwym Hendawyr melalui <a href="https://poly.pizza" target="_blank" rel="noreferrer">Poly Pizza</a> (<a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>); model disesuaikan ukuran dan penempatannya.</p><p>Suara hewan memakai rekaman asli dari Freesound, Wikimedia Commons, dan OpenGameArt. Setiap hewan memiliki klip tersendiri; husky, shiba, dan pug memakai rekaman jenis anjing yang sesuai. Kelinci memperdengarkan suara kunyahan dan bangau ketukan paruh. Semua kreator, sumber, lisensi, dan pemotongan klip tercantum di catatan di bawah. Suasana hutan dari SFXMint (CC0). Hutan dibuat khusus untuk halaman ini.</p><p>Penemuan disimpan di perangkat ini. Tidak ada akun atau data pribadi yang diperlukan.</p><a className="dw-credit-file" href="/dunia-hewan/ASSET-CREDITS.md" target="_blank" rel="noreferrer">Lihat catatan sumber dan lisensi <ArrowRight size={14} /></a></>}
+      {collection ? <><span className="dw-eyebrow">BUKU PETUALANGANMU</span><h2 id="dw-dialog-title">Teman-teman kecilku <span>🌿</span></h2><p>{found.length} dari {ANIMALS.length} teman sudah kamu sapa. Siapa berikutnya?</p><label className="dw-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Cari nama hewan…" aria-label="Cari hewan" /></label><div className="dw-filters">{[["semua", "Semua teman"], ["darat", "🐾 Di darat"], ["terbang", "🪽 Bisa terbang"], ["ditemukan", "✓ Ditemukan"]].map(([id, name]) => <button key={id} className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)}>{name}</button>)}</div><div className="dw-collection-grid">{filtered.map(a => <button key={a.id} onClick={() => select(a)}><span>{a.emoji}</span><b>{a.name}</b><small>{a.english}</small><i className={found.includes(a.id) ? "found" : ""}>{found.includes(a.id) ? <><Check size={12} /> Ditemukan</> : "Ayo berkenalan"}</i></button>)}{!filtered.length && <p className="dw-no-results">Belum ada hewan di sini. Coba nama atau pilihan lain, ya.</p>}</div></> : <><span className="dw-eyebrow">MIRACLE OF TREES</span><h2 id="dw-dialog-title">Dunia kecil untuk<br />rasa ingin tahu besar.</h2><p>Tempat bermain dan berkenalan dengan hewan melalui bentuk, gerak, dan suara. Hewan dari berbagai habitat berkumpul di dunia imajinasi ini.</p><p><b>Aset & kredit</b><br />Model hewan oleh <a href="https://quaternius.com/packs/ultimateanimatedanimals.html" target="_blank" rel="noreferrer">Quaternius</a> (CC0), dikonversi oleh <a href="https://github.com/danwahl/animasim" target="_blank" rel="noreferrer">animasim</a>. Model ternak dan anak ayam dari <a href="https://opengameart.org/content/lowpoly-animated-farm-animal-pack" target="_blank" rel="noreferrer">OpenGameArt</a> (CC0). Model satwa lain oleh Poly by Google, Хмара Сергей, dan Gwym Hendawyr melalui <a href="https://poly.pizza" target="_blank" rel="noreferrer">Poly Pizza</a> (<a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>); model disesuaikan ukuran dan penempatannya serta diberi rig gerak dan sayap tambahan. Gerakan kejar-kejaran dan adu ringan merupakan permainan di dunia imajinasi ini.</p><p>Suara hewan memakai rekaman asli dari Freesound, Wikimedia Commons, dan OpenGameArt. Setiap hewan memiliki klip tersendiri; husky, shiba, dan pug memakai rekaman jenis anjing yang sesuai. Kelinci memperdengarkan suara kunyahan dan bangau ketukan paruh. Semua kreator, sumber, lisensi, dan pemotongan klip tercantum di catatan di bawah. Suasana hutan dari SFXMint (CC0). Hutan dibuat khusus untuk halaman ini.</p><p>Penemuan disimpan di perangkat ini. Tidak ada akun atau data pribadi yang diperlukan.</p><a className="dw-credit-file" href="/dunia-hewan/ASSET-CREDITS.md" target="_blank" rel="noreferrer">Lihat catatan sumber dan lisensi <ArrowRight size={14} /></a></>}
     </div></div>}
     <span className="dw-sr-only" aria-live="polite">{selected ? `${selected.name}. ${selected.fact} ${selected.call}` : `${found.length} teman ditemukan.`}</span>
   </main>;

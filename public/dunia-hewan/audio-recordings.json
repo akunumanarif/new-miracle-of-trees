@@ -434,6 +434,22 @@
       "outputDurationSeconds": 2.229,
       "sha256": "cc749e05537bf680debe886cca3618ef876ad02c62d2e9895545ee101ce232f6",
       "processing": "Excerpt; mono 44.1 kHz MP3; 40 Hz rumble filter; peak normalization; short fades. Original pitch and speed preserved."
+    },
+    {
+      "id": "goose",
+      "file": "goose-recording-v2.mp3",
+      "title": "Goose Trumpet (loud honk) - Best Capture",
+      "author": "el_boss",
+      "source": "https://freesound.org/people/el_boss/sounds/740197/",
+      "downloadUrl": "https://cdn.freesound.org/previews/740/740197_9129912-hq.mp3",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "start": 0,
+      "duration": 0.535,
+      "description": "Angsa berseru",
+      "sourceExtension": ".mp3",
+      "outputDurationSeconds": 0.535,
+      "sha256": "596b0adea379a73d03aa7d8c22aed5ec925155d686eef01c29f7854b0111f3f5",
+      "processing": "Excerpt; mono 44.1 kHz MP3; 40 Hz rumble filter; peak normalization; short fades. Original pitch and speed preserved."
     }
   ]
 }
