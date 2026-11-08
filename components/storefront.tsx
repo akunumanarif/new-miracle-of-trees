@@ -4,8 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { Book } from "@/lib/types";
-import { formatRupiah } from "@/lib/seed-books";
+import { formatRupiah } from "@/lib/format";
 import { Arrow, BookMark, Heart, Instagram, Search } from "./icons";
+import BookCover from "./book-cover";
+import BookStockRibbon from "./book-stock-ribbon";
 
 const formats = ["Semua", "paperback", "hardback", "board book"];
 const instagramPosts = [
@@ -21,12 +23,11 @@ function BookCard({ book, saved, onSave, duplicate = false }: { book: Book; save
   return (
     <article className="book-card" aria-hidden={duplicate || undefined}>
       <Link href={`/buku/${book.slug}`} tabIndex={duplicate ? -1 : undefined} className="book-cover" style={{ "--cover": book.accent } as React.CSSProperties}>
-        <span className="cover-kicker">Miracle of Trees</span>
-        <span className="cover-art" aria-hidden="true">{book.cover}</span>
-        <strong>{book.title}</strong>
-        <small>{book.author}</small>
+        <BookCover book={book} />
+        <BookStockRibbon quantity={book.stock_quantity} />
       </Link>
       <div className="book-info">
+        {(book.is_new || book.is_featured) && <div className="book-highlights">{book.is_new && <span>Baru</span>}{book.is_featured && <span>Pilihan kurator</span>}</div>}
         <div className="book-tags"><span>{book.age}</span><span>{book.format}</span></div>
         <Link href={`/buku/${book.slug}`} tabIndex={duplicate ? -1 : undefined}><h3>{book.title}</h3></Link>
         <p>{book.author}</p>
@@ -39,7 +40,7 @@ function BookCard({ book, saved, onSave, duplicate = false }: { book: Book; save
   );
 }
 
-export default function Storefront({ books }: { books: Book[] }) {
+export default function Storefront({ books, catalogError }: { books: Book[]; catalogError: string | null }) {
   const [query, setQuery] = useState("");
   const [format, setFormat] = useState("Semua");
   const [saved, setSaved] = useState<string[]>([]);
@@ -107,8 +108,14 @@ export default function Storefront({ books }: { books: Book[] }) {
             {formats.map((item) => <button key={item} onClick={() => { setFormat(item); setShowSaved(false); }} className={!showSaved && format === item ? "active" : ""}>{item}</button>)}
             <button onClick={() => setShowSaved(true)} className={showSaved ? "active" : ""}>Tersimpan ({saved.length})</button>
           </div>
-          {filtered.length ? (
-            <div className="book-marquee" aria-label="Daftar buku pilihan bergerak dari kanan ke kiri">
+          {catalogError ? (
+            <div className="empty-state" role="alert"><h3>Koleksi belum dapat dimuat</h3><p>{catalogError}</p><a className="primary-button" href="/#koleksi">Coba lagi</a></div>
+          ) : filtered.length ? (
+            filtered.length <= 4 ? (
+              <div className="book-list" aria-label="Daftar buku pilihan">
+                {filtered.map((book) => <BookCard key={book.id} book={book} saved={saved.includes(book.id)} onSave={() => toggleSaved(book.id)} />)}
+              </div>
+            ) : <div className="book-marquee" aria-label="Daftar buku pilihan bergerak dari kanan ke kiri">
               <div className="book-track">
                 <div className="book-set">
                   {filtered.map((book) => <BookCard key={book.id} book={book} saved={saved.includes(book.id)} onSave={() => toggleSaved(book.id)} />)}
@@ -118,7 +125,7 @@ export default function Storefront({ books }: { books: Book[] }) {
                 </div>
               </div>
             </div>
-          ) : <div className="empty-state"><span>⌕</span><h3>Belum ada buku yang cocok</h3><p>Coba kata pencarian atau kategori yang berbeda.</p></div>}
+          ) : <div className="empty-state"><span>⌕</span><h3>{books.length ? "Belum ada buku yang cocok" : "Koleksi segera hadir"}</h3><p>{books.length ? "Coba kata pencarian atau kategori yang berbeda." : "Buku pilihan kami akan segera tersedia di sini."}</p></div>}
         </section>
 
         <section className="curation section" id="kurasi">

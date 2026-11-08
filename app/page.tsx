@@ -1,9 +1,9 @@
 import Storefront from "@/components/storefront";
 import { getBooks } from "@/lib/books";
-
-export const revalidate = 300;
+import { connection } from "next/server";
 
 export default async function HomePage() {
-  const books = await getBooks();
-  return <Storefront books={books} />;
+  await connection();
+  const { data, error } = await getBooks();
+  return <Storefront books={data ?? []} catalogError={error} />;
 }
