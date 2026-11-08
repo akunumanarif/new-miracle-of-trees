@@ -6,4 +6,4 @@ out
 .netlify
 .DS_Store
 *.tsbuildinfo
-supabase
+/supabase/
