@@ -1,0 +1,74 @@
+{
+  "polyPizza": [
+    {
+      "name": "Lion",
+      "page": "https://poly.pizza/m/3XAJojWxSWz",
+      "url": "https://static.poly.pizza/34e4de3e-50ac-400e-adab-a13a0825ee1a.glb",
+      "author": "Poly by Google",
+      "license": "CC-BY 3.0"
+    },
+    {
+      "name": "Elephant",
+      "page": "https://poly.pizza/m/a27MA0rXyyj",
+      "url": "https://static.poly.pizza/b8ca84f2-02b2-4c84-92c0-b5f8b0eee90e.glb",
+      "author": "Poly by Google",
+      "license": "CC-BY 3.0"
+    },
+    {
+      "name": "Bear",
+      "page": "https://poly.pizza/m/56ym_pyVnel",
+      "url": "https://static.poly.pizza/cba1e1c9-f4aa-4f12-8d58-2ba5baf1aa2b.glb",
+      "author": "Poly by Google",
+      "license": "CC-BY 3.0"
+    },
+    {
+      "name": "Tiger",
+      "page": "https://poly.pizza/m/5A3w06FXUup",
+      "url": "https://static.poly.pizza/460ff96a-ea48-4b39-b38c-d0c7daa06a3c.glb",
+      "author": "Poly by Google",
+      "license": "CC-BY 3.0"
+    },
+    {
+      "name": "Duck",
+      "page": "https://poly.pizza/m/6HpauUCfIAb",
+      "url": "https://static.poly.pizza/39c7efbf-f6f3-48c8-90a2-2f22a02a2cf4.glb",
+      "author": "Poly by Google",
+      "license": "CC-BY 3.0"
+    },
+    {
+      "name": "Cat",
+      "page": "https://poly.pizza/m/6dM1J6f6pm9",
+      "url": "https://static.poly.pizza/5d32eb38-9546-4ce4-aa77-bcef9328ee61.glb",
+      "author": "Poly by Google",
+      "license": "CC-BY 3.0"
+    },
+    {
+      "name": "Bunny",
+      "page": "https://poly.pizza/m/irZjWFARyl",
+      "url": "https://static.poly.pizza/084b5ebe-c3eb-4e64-9b17-06e2d1e3da5d.glb",
+      "author": "Quaternius",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "Parrot",
+      "page": "https://poly.pizza/m/dfNjMLtO0pd",
+      "url": "https://static.poly.pizza/9916df1b-dd5d-4072-bda3-c120ae6e5917.glb",
+      "author": "Poly by Google",
+      "license": "CC-BY 3.0"
+    },
+    {
+      "name": "Flamingo",
+      "page": "https://poly.pizza/m/5hUIvLVFqet",
+      "url": "https://static.poly.pizza/210f907e-74ef-469a-9c24-afbd0ecdbeb7.glb",
+      "author": "Хмара Сергей",
+      "license": "CC-BY 3.0"
+    },
+    {
+      "name": "Stork",
+      "page": "https://poly.pizza/m/aRlrdbGgvQC",
+      "url": "https://static.poly.pizza/f5c42510-a1f4-4a48-84ee-d9ed2ec99d3e.glb",
+      "author": "Gwym Hendawyr",
+      "license": "CC-BY 3.0"
+    }
+  ]
+}
