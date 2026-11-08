@@ -16,6 +16,7 @@ import zipfile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--cache", type=Path)
+parser.add_argument("--only", nargs="+", help="Prepare selected animal IDs only")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 manifest_path = root / "public/dunia-hewan/audio-recordings.json"
@@ -25,6 +26,8 @@ cache = args.cache or Path(temporary.name)
 cache.mkdir(parents=True, exist_ok=True)
 
 for entry in manifest["recordings"]:
+    if args.only and entry["id"] not in args.only:
+        continue
     source = cache / (entry["id"] + "-source" + entry["sourceExtension"])
     if not source.exists():
         download = cache / (entry["id"] + "-download")
