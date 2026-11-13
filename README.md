@@ -81,6 +81,20 @@ Untuk mengisi foto tambahan dan metadata, jalankan `supabase/migrations/20261108
 
 Bagian **Foto tambahan** menerima maksimal 4 foto selain sampul utama. Upload diproses satu per satu (maksimal 5 MB per file); foto dapat diurutkan atau dilepas sebelum buku disimpan. Foto yang sudah diupload tetapi belum disimpan atau sudah dilepas tetap ada di Storage dan dapat dikelola melalui dashboard Supabase. Galeri menampilkan setiap URL unik satu kali, tanpa thumbnail duplikat untuk buku dengan satu foto. Desain baru tetap dapat menampilkan buku lama sebelum migrasi detail dijalankan; penyimpanan melalui admin memerlukan migrasi tersebut.
 
+## Tambah buku lewat scan ISBN
+
+Jalankan `supabase/migrations/20261109_isbn_scan.sql` setelah migrasi detail buku, lalu deploy kode terbaru. Di **Kelola buku → Tambah buku**, pilih **Scan barcode ISBN**, izinkan kamera, lalu arahkan barcode 978/979 ke kamera belakang HP. Saat scan aktif, gunakan **Ganti kamera** untuk berpindah antar kamera yang tersedia, misalnya kamera depan dan belakang. Akses kamera memerlukan HTTPS (atau localhost untuk pengembangan); URL HTTP lewat IP lokal tidak bisa mengakses kamera.
+
+ISBN divalidasi beserta checksum. Sistem memeriksa seluruh koleksi, termasuk draft dan arsip, dengan menyamakan tanda hubung/spasi dan ISBN-10/ISBN-13 yang setara. Jika duplikat, penyimpanan hasil scan diblokir; admin dapat membuka buku yang ada atau memilih **Tambah manual** untuk memeriksa dan memasukkan buku secara manual. Jalur manual tetap mengizinkan ISBN duplikat. Pemeriksaan ulang di server dan trigger database melindungi penyimpanan scan bersamaan untuk ISBN yang sama.
+
+Untuk ISBN baru, sistem mencari edisi dengan ISBN yang cocok di Google Books terlebih dahulu. Jika Google Books tidak mengembalikan judul yang cocok atau permintaannya gagal, sistem mengambil halaman `https://isbnsearch.org/isbn/{isbn}` sebagai fallback. Data HTML hanya dibaca di server, ISBN pada bagian detail harus cocok, dan script tidak dijalankan. Open Library dan Little Tiger tidak lagi dipanggil dalam alur ini.
+
+Kolom kosong diisi dari data yang tersedia: judul, penulis, deskripsi, jumlah halaman, dan tanggal terbit lengkap. ISBN Search juga dapat mengisi format: Hardcover/Hardback → Hardback, Softcover/Paperback → Paperback, Board Book → Board Book. Format yang sudah dipilih admin tidak ditimpa. Tautan sumber ditampilkan di form. Deskripsi, halaman, harga, kategori, usia, dan sampul yang tidak tersedia tetap perlu dilengkapi admin. Jika kedua sumber gagal atau tidak menemukan buku, ISBN tetap terisi dan form dapat dilengkapi manual. Tidak ada buku yang disimpan otomatis. Kamera diproses di browser; pencarian eksternal mengirim ISBN.
+
+Untuk memakai kuota proyek Google sendiri, aktifkan Books API di Google Cloud dan isi `GOOGLE_BOOKS_API_KEY` di environment server (tanpa awalan `NEXT_PUBLIC_`), lalu restart/deploy ulang. ISBN Search tidak membutuhkan key. Setiap permintaan sumber dibatasi 6 detik. Log server menyebut sumber serta status HTTP tanpa mencetak API key. Parser ISBN Search bergantung pada struktur HTML situs; bila berubah atau akses dibatasi, alur berakhir pada pengisian manual.
+
+Referensi: [ZXing browser](https://github.com/zxing-js/browser), [Google Books API](https://developers.google.com/books/docs/v1/reference/volumes/list), dan [ISBN Search](https://isbnsearch.org/).
+
 ## Stok pada halaman detail
 
 Jalankan `supabase/migrations/20261108_public_book_stock.sql` setelah migrasi inventory. Halaman detail mengambil jumlah stok sistem terbaru saat dimuat: 1–2 buku menampilkan **Last stock!**, lebih dari 2 menampilkan **Available · Ready stock**, dan 0 menampilkan **Stok habis**. Jumlah pastinya juga ditampilkan. Buku yang belum memiliki pencatatan stok dianggap 0, sesuai nilai awal admin.

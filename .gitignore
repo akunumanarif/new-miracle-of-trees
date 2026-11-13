@@ -6,4 +6,7 @@ out
 .netlify
 .DS_Store
 *.tsbuildinfo
-/supabase/
+/supabase/*
+!/supabase/migrations/
+/supabase/migrations/*
+!/supabase/migrations/20261109_isbn_scan.sql

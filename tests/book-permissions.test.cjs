@@ -30,6 +30,7 @@ before(async () => {
   }
   await db.query("insert into auth.users values ($1,'admin@example.com'),($2,'member@example.com')", [adminId, memberId]);
   await db.query("insert into public.admin_users(user_id) values ($1)", [adminId]);
+  for (let i = 0; i < 2; i++) await db.exec(readFileSync(resolve(__dirname, "../supabase/migrations/20261109_isbn_scan.sql"), "utf8"));
 });
 after(async () => { await db?.close(); });
 async function asUser(id, work) {
@@ -132,6 +133,34 @@ test("book cover bucket has a public URL and restricts file sizes and MIME types
   assert.equal(bucket.public, true);
   assert.equal(Number(bucket.file_size_limit), 5242880);
   assert.deepEqual(bucket.allowed_mime_types, ["image/jpeg", "image/png", "image/webp"]);
+});
+test("ISBN lookup is admin-only and detects draft or archived ISBN-10 equivalents", async () => {
+  const existingId = (await db.query(`insert into public.books(slug,title,author,category,age,format,price,description,isbn,status)
+    values ('isbn-existing','Existing ISBN','Author','Alam','3','Hardback',1,'Book','0-306-40615-2','archived') returning id`)).rows[0].id;
+  await asUser(null, async () => {
+    await assert.rejects(db.query("select * from public.find_book_by_isbn('9780306406157')"), { code: "42501" });
+  });
+  await asUser(memberId, async () => {
+    assert.equal((await db.query("select * from public.find_book_by_isbn('9780306406157')")).rows.length, 0);
+  });
+  await asUser(adminId, async () => {
+    assert.equal((await db.query("select * from public.find_book_by_isbn('978-0-306-40615-7')")).rows[0].id, existingId);
+    await assert.rejects(db.query(`insert into public.books(slug,title,author,category,age,format,price,description,isbn,created_via_isbn_scan)
+      values ('isbn-scan-rejected','Duplicate','Author','Alam','3','Hardback',1,'Book','9780306406157',true)`), { code: "23505", constraint: "books_scanned_isbn_duplicate" });
+    await db.query(`insert into public.books(slug,title,author,category,age,format,price,description,isbn)
+      values ('isbn-manual-allowed','Manual duplicate','Author','Alam','3','Hardback',1,'Book','9780306406157')`);
+  });
+});
+test("unique scanned books save and future scans are blocked", async () => {
+  const insertScanned = slug => db.query(`insert into public.books(slug,title,author,category,age,format,price,description,isbn,created_via_isbn_scan)
+    values ($1,'Scanned','Author','Alam','3','Hardback',1,'Book','9780804429573',true) returning id`, [slug]);
+  await asUser(memberId, async () => { await assert.rejects(insertScanned('isbn-member'), { code: "42501" }); });
+  await asUser(adminId, async () => {
+    assert.equal((await insertScanned('isbn-first-scan')).rows.length, 1);
+    await assert.rejects(insertScanned('isbn-second-scan'), { code: "23505" });
+    await assert.rejects(db.query(`insert into public.books(slug,title,author,category,age,format,price,description,created_via_isbn_scan)
+      values ('isbn-missing','Scanned','Author','Alam','3','Hardback',1,'Book',true)`), { code: "23514" });
+  });
 });
 test("only admins may upload covers and must use their own upload folder", async () => {
   const upload = name => db.query("insert into storage.objects(bucket_id,name) values ('book-covers',$1)", [name]);

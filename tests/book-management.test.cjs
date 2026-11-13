@@ -6,13 +6,14 @@ const { File } = require("node:buffer");
 const vm = require("node:vm");
 const ts = require("typescript");
 const sharp = require("sharp");
+const { DOMParser } = require("linkedom");
 
-function load(file, mocks = {}, env = {}) {
+function load(file, mocks = {}, env = {}, globals = {}) {
   const exports = {};
   const code = ts.transpileModule(readFileSync(resolve(__dirname, "..", file), "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
   }).outputText;
-  vm.runInNewContext(code, { exports, Buffer, URL, process: { env }, console: { error() {} }, require: name => {
+  vm.runInNewContext(code, { exports, Buffer, URL, ...globals, process: { env }, console: { error() {} }, require: name => {
     if (name === "server-only") return {};
     if (Object.hasOwn(mocks, name)) return mocks[name];
     throw new Error(`Unexpected import: ${name}`);
@@ -21,6 +22,7 @@ function load(file, mocks = {}, env = {}) {
 }
 
 const validation = load("lib/book-validation.ts");
+const isbnTools = load("lib/isbn.ts");
 const imageUpload = load("lib/cover-upload.ts", { sharp, "./book-validation": validation });
 const imageUrl = load("lib/cover.ts", {}, { NEXT_PUBLIC_SUPABASE_URL: "https://catalog.example.com" });
 const id = "33333333-3333-4333-8333-333333333333";
@@ -95,7 +97,7 @@ test("corrupt files and spoofed images cannot be uploaded", async () => {
   await assert.rejects(imageUpload.prepareCover(new File([Buffer.alloc(5 * 1024 * 1024 + 1)], "big.png", { type: "image/png" })), /maksimal 5 MB/);
 });
 
-function actions({ authorize, result = { data: { id }, error: null }, existing, uploadError = null } = {}) {
+function actions({ authorize, result = { data: { id }, error: null }, existing, uploadError = null, duplicate = { data: [], error: null } } = {}) {
   const calls = { writes: [], uploads: [], removals: [], revalidated: [] };
   const bucket = {
     upload: async (...args) => { calls.uploads.push(args); return { error: uploadError }; },
@@ -104,6 +106,7 @@ function actions({ authorize, result = { data: { id }, error: null }, existing, 
   };
   const chain = { eq: () => chain, select: () => chain, maybeSingle: async () => result, single: async () => result };
   const client = {
+    rpc: async () => duplicate,
     storage: { from: () => bucket },
     from: () => ({
       select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: existing, error: null }) }) }),
@@ -118,9 +121,234 @@ function actions({ authorize, result = { data: { id }, error: null }, existing, 
     "@/lib/admin": { requireAdmin: authorize ?? (async () => ({ supabase: client, user: { id: "admin-id" } })) },
     "@/lib/book-validation": validation,
     "@/lib/cover-upload": imageUpload,
+    "@/lib/isbn": isbnTools,
   });
   return { ...api, calls };
 }
+
+test("ISBN validation checks checksums, book prefixes and equivalent ISBN-10 editions", () => {
+  assert.equal(isbnTools.canonicalIsbn("0-306-40615-2"), "9780306406157");
+  assert.equal(isbnTools.canonicalIsbn(" 978-0-306-40615-7 "), "9780306406157");
+  assert.equal(isbnTools.canonicalIsbn("080442957X"), "9780804429573");
+  for (const input of ["9780306406158", "1234567890128", "0306406153", "garbage", ""]) {
+    assert.equal(isbnTools.canonicalIsbn(input), null, input);
+  }
+});
+
+test("scanned duplicates and failed duplicate checks never upload or save", async () => {
+  for (const duplicate of [{ data: [{ id, title: "Existing" }], error: null }, { data: null, error: { code: "network" } }]) {
+    const api = actions({ duplicate });
+    assert.ok((await api.saveBook({}, form({ isbn: "9780306406157", created_via_isbn_scan: "on" }))).error);
+    assert.equal(api.calls.writes.length, 0);
+    assert.equal(api.calls.uploads.length, 0);
+  }
+});
+
+test("scanned creates require a valid ISBN and retain their origin for database protection", async () => {
+  const invalid = actions();
+  assert.match((await invalid.saveBook({}, form({ isbn: "9780306406158", created_via_isbn_scan: "on" }))).error, /tidak valid/);
+  assert.equal(invalid.calls.writes.length, 0);
+  const api = actions();
+  await assert.rejects(api.saveBook({}, form({ isbn: "0-306-40615-2", created_via_isbn_scan: "on" })), /saved=created/);
+  assert.equal(api.calls.writes[0].created_via_isbn_scan, true);
+  assert.equal(api.calls.writes[0].isbn, "9780306406157");
+});
+
+test("manual creation allows reviewed duplicate ISBNs", async () => {
+  const api = actions({ duplicate: { data: [{ id }], error: null } });
+  await assert.rejects(api.saveBook({}, form({ isbn: "9780306406157" })), /saved=created/);
+  assert.equal(api.calls.writes[0].created_via_isbn_scan, undefined);
+});
+
+test("database duplicate races return the manual-entry instruction", async () => {
+  const api = actions({ result: { data: null, error: { code: "23505", message: "ISBN already exists; add manually" } } });
+  assert.match((await api.saveBook({}, form({ isbn: "9780306406157", created_via_isbn_scan: "on" }))).error, /Tambah manual/);
+});
+
+function isbnLookup({ duplicate = { data: [], error: null }, fetch: fetchMock, authorize, insert, revalidate = () => {} } = {}) {
+  const metadataApi = load("lib/book-metadata.ts", { "./isbn": isbnTools, linkedom: { DOMParser } }, {}, { fetch: fetchMock, AbortSignal });
+  return load("app/admin/books/isbn-actions.ts", {
+    "@/lib/admin": { requireAdmin: authorize ?? (async () => ({ supabase: { rpc: async () => duplicate, from: () => ({ insert: fields => ({ select: () => ({ single: async () => insert(fields) }) }) }) } })) },
+    "next/cache": { revalidatePath: revalidate },
+    "@/lib/book-validation": validation,
+    "@/lib/isbn": isbnTools,
+    "@/lib/book-metadata": metadataApi,
+  }, {}, { fetch: fetchMock, AbortSignal });
+}
+
+test("auto scan saves a draft without form fields or redirect and returns an edit reference", async () => {
+  const writes = [], paths = [];
+  const api = isbnLookup({
+    fetch: async () => ({ ok: true, json: async () => ({ items: [{ volumeInfo: { title: "A book", authors: ["Author"], pageCount: 32, publishedDate: "2025-01-01", industryIdentifiers: [{ identifier: "9780306406157" }] } }] }) }),
+    insert: fields => { writes.push(fields); return { data: { id }, error: null }; },
+    revalidate: path => paths.push(path),
+  });
+  const result = await api.addIsbnDraft("0-306-40615-2");
+  assert.equal(result.savedDraft.id, id);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].status, "draft");
+  assert.equal(writes[0].created_via_isbn_scan, true);
+  assert.equal(writes[0].isbn, "9780306406157");
+  assert.equal(writes[0].title, "A book");
+  assert.equal(writes[0].author, "Author");
+  assert.equal(writes[0].page_count, 32);
+  assert.equal(writes[0].publication_date, "2025-01-01");
+  assert.equal(writes[0].price, 0);
+  assert.equal(writes[0].category, "");
+  assert.equal(writes[0].age, "");
+  assert.ok(paths.includes("/admin/books"));
+});
+
+test("auto scan still creates an identifiable draft when metadata providers are unavailable", async () => {
+  let payload;
+  const api = isbnLookup({ fetch: async () => { throw new Error("offline"); }, insert: fields => { payload = fields; return { data: { id }, error: null }; } });
+  const result = await api.addIsbnDraft("9780306406157");
+  assert.equal(result.savedDraft.id, id);
+  assert.equal(payload.title, "Buku ISBN 9780306406157");
+  assert.match(payload.slug, /9780306406157$/);
+  assert.equal(payload.author, "");
+  assert.equal(payload.description, "");
+  assert.equal(payload.status, "draft");
+});
+
+test("auto draft refuses unauthorized, invalid, duplicate and unchecked ISBNs without writes", async () => {
+  await assert.rejects(isbnLookup({ authorize: async () => { throw new Error("LOGIN_REQUIRED"); } }).addIsbnDraft("9780306406157"), /LOGIN_REQUIRED/);
+  const insert = () => { assert.fail("Must not insert"); };
+  assert.ok((await isbnLookup({ insert }).addIsbnDraft("9780306406158")).error);
+  assert.ok((await isbnLookup({ insert, duplicate: { data: [{ id, title: "Existing" }], error: null } }).addIsbnDraft("9780306406157")).duplicate);
+  assert.ok((await isbnLookup({ insert, duplicate: { data: null, error: { code: "PGRST202" } } }).addIsbnDraft("9780306406157")).error);
+});
+
+test("auto draft reports duplicate races and uncertain writes without claiming success", async () => {
+  for (const error of [{ code: "23505", message: "ISBN already exists" }, { code: "", message: "Network error" }]) {
+    const result = await isbnLookup({ fetch: async () => ({ ok: false }), insert: () => ({ data: null, error }) }).addIsbnDraft("9780306406157");
+    assert.equal(result.savedDraft, undefined);
+    assert.match(result.error, error.code === "23505" ? /sudah ada/ : /Periksa daftar buku/);
+  }
+});
+
+test("ISBN lookup requires admin and never calls metadata provider for duplicates or check errors", async () => {
+  const denied = isbnLookup({ authorize: async () => { throw new Error("LOGIN_REQUIRED"); } });
+  await assert.rejects(denied.lookupBookIsbn("9780306406157"), /LOGIN_REQUIRED/);
+  let fetches = 0;
+  const fetch = async () => { fetches++; throw new Error("Should not fetch"); };
+  const duplicate = await isbnLookup({ duplicate: { data: [{ id, title: "Existing" }], error: null }, fetch }).lookupBookIsbn("0-306-40615-2");
+  assert.equal(duplicate.duplicate.id, id);
+  assert.ok((await isbnLookup({ duplicate: { data: null, error: {} }, fetch }).lookupBookIsbn("9780306406157")).error);
+  assert.ok((await isbnLookup({ fetch }).lookupBookIsbn("9780306406158")).error);
+  assert.equal(fetches, 0);
+});
+
+test("ISBN metadata only accepts an exact equivalent edition and complete publication dates", async () => {
+  const api = isbnLookup({ fetch: async () => ({ ok: true, json: async () => ({ items: [
+    { volumeInfo: { title: "Wrong edition", industryIdentifiers: [{ identifier: "9780804429573" }] } },
+    { volumeInfo: { title: "Correct edition", authors: ["Author"], description: "<p>Story</p>", publishedDate: "2025", pageCount: 32, industryIdentifiers: [{ identifier: "0306406152" }] } },
+  ] }) }) });
+  const result = await api.lookupBookIsbn("9780306406157");
+  assert.equal(result.metadata.title, "Correct edition");
+  assert.equal(result.metadata.description, "Story");
+  assert.equal(result.metadata.page_count, "32");
+  assert.equal(result.metadata.publication_date, undefined);
+});
+
+const isbnSearchHtml = (isbn = "9781838742270") => `<div class="bookinfo"><h1>Tummy Trouble &amp; Friends</h1>
+  <p><strong>ISBN-13:</strong> <a href="/isbn/${isbn}">${isbn}</a></p>
+  <p><strong>Author:</strong> Elcomb, Ben</p><p><strong>Binding:</strong> Hardcover</p>
+  <p><strong>Publisher:</strong> Flying Eye Books</p><p><strong>Published:</strong> 2026-01-08</p></div>`;
+
+test("Google misses and provider failures fall back to ISBN Search in order", async () => {
+  for (const google of [async () => ({ ok: true, json: async () => ({ totalItems: 0 }) }), async () => ({ ok: false, status: 429 }), async () => { throw new Error("timeout"); }]) {
+    const calls = [];
+    const api = isbnLookup({ fetch: async url => {
+      calls.push(url);
+      if (url.includes("googleapis.com")) return google();
+      assert.equal(url, "https://isbnsearch.org/isbn/9781838742270");
+      return { ok: true, text: async () => isbnSearchHtml() };
+    } });
+    const result = await api.lookupBookIsbn("9781838742270");
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].includes("googleapis.com"));
+    assert.equal(result.metadata.title, "Tummy Trouble & Friends");
+    assert.equal(result.metadata.author, "Elcomb, Ben");
+    assert.equal(result.metadata.format, "Hardback");
+    assert.equal(result.metadata.publication_date, "2026-01-08");
+    assert.equal(result.metadata.description, undefined);
+    assert.equal(result.metadata.page_count, undefined);
+    assert.equal(result.sources[0].name, "ISBN Search");
+  }
+});
+
+test("a Google ISBN match with a title does not request the fallback", async () => {
+  let fetches = 0;
+  const api = isbnLookup({ fetch: async url => {
+    fetches++;
+    assert.ok(url.includes("googleapis.com"));
+    return { ok: true, json: async () => ({ items: [{ volumeInfo: { title: "Google title", industryIdentifiers: [{ identifier: "9781838742270" }] } }] }) };
+  } });
+  const result = await api.lookupBookIsbn("9781838742270");
+  assert.equal(result.metadata.title, "Google title");
+  assert.equal(fetches, 1);
+  assert.equal(result.sources[0].name, "Google Books");
+});
+
+test("fallback rejects mismatched ISBNs, block pages, oversized pages and network errors", async () => {
+  const fallbacks = [
+    async () => ({ ok: true, text: async () => isbnSearchHtml("9780306406157") }),
+    async () => ({ ok: true, text: async () => "<h1>Verify you are human</h1>" }),
+    async () => ({ ok: true, text: async () => "x".repeat(2000001) }),
+    async () => ({ ok: false, status: 404 }),
+    async () => { throw new Error("timeout"); },
+  ];
+  for (const fallback of fallbacks) {
+    const result = await isbnLookup({ fetch: async url => url.includes("googleapis.com") ? { ok: true, json: async () => ({ items: [] }) } : fallback() }).lookupBookIsbn("9781838742270");
+    assert.equal(result.isbn, "9781838742270");
+    assert.equal(Object.keys(result.metadata).length, 0);
+    assert.equal(result.sources.length, 0);
+    assert.match(result.notice, /manual/);
+  }
+});
+
+test("fallback accepts equivalent ISBN-10 and returns only inert text", async () => {
+  const result = await isbnLookup({ fetch: async url => url.includes("googleapis.com") ? { ok: true, json: async () => ({ items: [] }) } : {
+    ok: true, text: async () => `<div class="bookinfo"><h1>Book<script>malicious()</script></h1><p><strong>ISBN-10:</strong>1838742271</p><p><strong>Binding:</strong>Paperback</p><p><strong>Published:</strong>2026</p></div>`,
+  } }).lookupBookIsbn("9781838742270");
+  assert.equal(result.metadata.title, "Book");
+  assert.equal(result.metadata.format, "Paperback");
+  assert.equal(result.metadata.publication_date, undefined);
+});
+
+test("ISBN Search browser verification is reported as manual completion without retries", async () => {
+  let calls = 0;
+  const result = await isbnLookup({ fetch: async url => {
+    calls++;
+    return url.includes("googleapis.com") ? { ok: true, json: async () => ({ items: [] }) } : {
+      ok: true, text: async () => "<html><head><title>ISBN Search - Checking your browser</title></head><body>Please wait</body></html>",
+    };
+  } }).lookupBookIsbn("9781838742270");
+  assert.equal(calls, 2);
+  assert.equal(Object.keys(result.metadata).length, 0);
+  assert.match(result.notice, /verifikasi browser/);
+  assert.match(result.notice, /manual/);
+});
+
+test("missing ISBN migration produces setup instructions instead of a book-not-found result", async () => {
+  const duplicate = { data: null, error: { code: "PGRST202" } };
+  const result = await isbnLookup({ duplicate }).lookupBookIsbn("9781838919443");
+  assert.match(result.error, /20261109_isbn_scan.sql/);
+  assert.equal(result.metadata, undefined);
+  const api = actions({ duplicate });
+  assert.match((await api.saveBook({}, form({ isbn: "9781838919443", created_via_isbn_scan: "on" }))).error, /20261109_isbn_scan.sql/);
+  assert.equal(api.calls.writes.length, 0);
+});
+
+test("metadata outages and missing editions retain the checked ISBN for manual completion", async () => {
+  for (const fetch of [async () => { throw new Error("timeout"); }, async () => ({ ok: false }), async () => ({ ok: true, json: async () => ({ items: [] }) })]) {
+    const result = await isbnLookup({ fetch }).lookupBookIsbn("9780306406157");
+    assert.equal(result.isbn, "9780306406157");
+    assert.equal(Object.keys(result.metadata).length, 0);
+    assert.ok(result.notice);
+  }
+});
 
 test("book mutation refuses unauthenticated requests", async () => {
   const api = actions({ authorize: async () => { throw new Error("LOGIN_REQUIRED"); } });

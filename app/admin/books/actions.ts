@@ -6,13 +6,27 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { parseBookForm } from "@/lib/book-validation";
 import { prepareCover } from "@/lib/cover-upload";
+import { canonicalIsbn, isbnCheckError } from "@/lib/isbn";
 import type { ActionState } from "../actions";
 
 export async function saveBook(_state: ActionState, form: FormData): Promise<ActionState> {
   const { supabase, user } = await requireAdmin();
   const parsed = parseBookForm(form);
   if (parsed.error) return { error: parsed.error };
-  const { id, revision, fields, removeCover, emoji } = parsed.data;
+  const { id, revision, removeCover, emoji } = parsed.data;
+  const fields = { ...parsed.data.fields };
+  const scanned = !id && form.get("created_via_isbn_scan") === "on";
+  if (scanned) {
+    const isbn = fields.isbn && canonicalIsbn(fields.isbn);
+    if (!isbn) return { error: "ISBN hasil scan tidak valid. Scan ulang atau gunakan tambah manual." };
+    fields.isbn = isbn;
+    const duplicate = await supabase.rpc("find_book_by_isbn", { input_isbn: isbn });
+    if (duplicate.error) {
+      console.error("ISBN duplicate check failed on save:", duplicate.error.code);
+      return { error: isbnCheckError(duplicate.error.code) };
+    }
+    if (duplicate.data?.length) return { error: "ISBN duplikat: buku sudah ada di koleksi. Hasil scan tidak disetujui. Gunakan Tambah manual untuk melanjutkan." };
+  }
   let previous: { slug: string; cover: string; revision: number } | null = null;
   if (id) {
     const result = await supabase.from("books").select("slug,cover,revision").eq("id", id).maybeSingle();
@@ -36,7 +50,7 @@ export async function saveBook(_state: ActionState, form: FormData): Promise<Act
     cover = supabase.storage.from("book-covers").getPublicUrl(uploadedPath).data.publicUrl;
   }
 
-  const payload = { ...fields, cover };
+  const payload = { ...fields, cover, ...(scanned ? { created_via_isbn_scan: true } : {}) };
   const result = id
     ? await supabase.from("books").update(payload).eq("id", id).eq("revision", revision).select("id").maybeSingle()
     : await supabase.from("books").insert(payload).select("id").single();
@@ -47,7 +61,10 @@ export async function saveBook(_state: ActionState, form: FormData): Promise<Act
     if (uploadedPath && (!result.error || /^\d{5}$/.test(result.error.code ?? ""))) {
       await supabase.storage.from("book-covers").remove([uploadedPath]);
     }
-    if (result.error?.code === "23505") return { error: "Slug sudah digunakan buku lain. Ganti alamat/slug buku lalu simpan kembali." };
+    if (result.error?.code === "23505") {
+      if (result.error.message?.includes("ISBN already exists")) return { error: "ISBN duplikat: hasil scan tidak disetujui. Gunakan Tambah manual untuk melanjutkan." };
+      return { error: "Slug sudah digunakan buku lain. Ganti alamat/slug buku lalu simpan kembali." };
+    }
     if (!result.error) return { error: "Buku sudah diubah admin lain. Muat ulang halaman dan periksa perubahan terbaru." };
     console.error("Book save failed:", result.error.code);
     return { error: "Buku belum dapat disimpan. Periksa daftar buku sebelum mencoba lagi; pastikan migrasi pengelolaan buku sudah dijalankan." };

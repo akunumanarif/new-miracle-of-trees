@@ -9,12 +9,18 @@ import { bookFormats, maxCoverBytes, slugify } from "@/lib/book-validation";
 import { getCoverImage } from "@/lib/cover";
 import type { AdminBook } from "@/lib/types";
 import GalleryEditor from "./gallery-editor";
+import IsbnScanner from "./isbn-scanner";
 
 export default function BookForm({ book }: { book?: AdminBook }) {
   const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [gallery, setGallery] = useState<string[]>(book?.gallery_images ?? []);
   const [galleryBusy, setGalleryBusy] = useState(false);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanBlocked, setScanBlocked] = useState(false);
+  const [scanned, setScanned] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
+  const [formatEdited, setFormatEdited] = useState(false);
   const [state, action, pending] = useActionState(async (previous: ActionState, form: FormData) => {
     // React resets native file inputs after an action. Retain the chosen image
     // for a retry when server-side validation or a database write fails.
@@ -47,10 +53,23 @@ export default function BookForm({ book }: { book?: AdminBook }) {
   const image = preview || (!removeCover ? currentCover : null);
   const field = (name: keyof typeof values, value: string | boolean) => setValues(current => ({ ...current, [name]: value }));
 
-  return <form action={action} className="admin-editor" onSubmit={event => { if (fileError || galleryBusy) event.preventDefault(); }}>
+  return <form action={action} className="admin-editor" onSubmit={event => { if (fileError || galleryBusy || scanBusy || scanBlocked) event.preventDefault(); }}>
+    <input type="hidden" name="created_via_isbn_scan" value={scanned ? "on" : ""} />
     <input type="hidden" name="id" value={book?.id ?? ""} />
     <input type="hidden" name="revision" value={book?.revision ?? 0} />
     <div className="admin-editor-main">
+      {!book && <IsbnScanner disabled={pending} onBusy={setScanBusy} onBlocked={setScanBlocked} onSaved={() => setDraftSaved(true)} onManual={() => { setScanned(false); setDraftSaved(false); }} onAccept={(isbn, metadata) => {
+        setDraftSaved(false);
+        setScanned(true);
+        setValues(current => ({ ...current, isbn,
+          title: current.title || metadata.title || "", author: current.author || metadata.author || "",
+          description: current.description || metadata.description || "",
+          page_count: current.page_count || metadata.page_count || "",
+          publication_date: current.publication_date || metadata.publication_date || "",
+          format: !formatEdited && metadata.format ? metadata.format : current.format,
+          slug: current.slug || (!slugEdited && metadata.title ? slugify(metadata.title) : ""),
+        }));
+      }} />}
       <section className="admin-panel admin-form-panel">
         <h2>Informasi buku</h2>
         <label>Judul buku *<input name="title" required maxLength={200} value={values.title} onChange={event => {
@@ -61,7 +80,7 @@ export default function BookForm({ book }: { book?: AdminBook }) {
           <label>Penulis *<input name="author" required maxLength={150} value={values.author} onChange={event => field("author", event.target.value)} /></label>
           <label>Kategori *<input name="category" required maxLength={100} value={values.category} onChange={event => field("category", event.target.value)} placeholder="Contoh: Alam, Emosi, Sains" /></label>
           <label>Usia pembaca *<input name="age" required maxLength={100} value={values.age} onChange={event => field("age", event.target.value)} placeholder="Contoh: 3–6 tahun" /></label>
-          <label>Format *<select name="format" value={values.format} onChange={event => field("format", event.target.value)}>{book && !bookFormats.includes(book.format as typeof bookFormats[number]) && <option value={book.format}>{book.format} (pilih format baru)</option>}{bookFormats.map(format => <option key={format}>{format}</option>)}</select></label>
+          <label>Format *<select name="format" value={values.format} onChange={event => { setFormatEdited(true); field("format", event.target.value); }}>{book && !bookFormats.includes(book.format as typeof bookFormats[number]) && <option value={book.format}>{book.format} (pilih format baru)</option>}{bookFormats.map(format => <option key={format}>{format}</option>)}</select></label>
         </div>
         <label>Deskripsi *<textarea name="description" required maxLength={10000} rows={9} value={values.description} onChange={event => field("description", event.target.value)} placeholder="Ceritakan isi buku, manfaat, dan keistimewaannya…" /></label>
         <span className="admin-help">{values.description.length.toLocaleString("id-ID")} / 10.000 karakter · paragraf tetap ditampilkan di halaman buku.</span>
@@ -115,7 +134,7 @@ export default function BookForm({ book }: { book?: AdminBook }) {
         <label>Status buku<select name="status" value={values.status} onChange={event => field("status", event.target.value)}><option value="draft">Draft — belum ditampilkan</option><option value="published">Published — tampil di toko</option><option value="archived">Archived — disimpan di arsip</option></select></label>
         <p className="admin-help">Buku draft dan arsip tetap tersedia untuk stok opname. Pilih Archived untuk menarik buku dari toko.</p>
         {state.error && <p className="admin-message error" role="alert">{state.error}</p>}
-        <button className="admin-button" disabled={pending || galleryBusy || Boolean(fileError)}>{galleryBusy ? "Menunggu upload foto…" : pending ? "Mengupload & menyimpan…" : book ? "Simpan perubahan" : "Tambah buku"}</button>
+        <button className="admin-button" disabled={pending || galleryBusy || scanBusy || scanBlocked || Boolean(fileError)}>{scanBusy ? "Memproses ISBN…" : draftSaved ? "Draft tersimpan — scan buku berikutnya" : scanBlocked ? "Scan ditolak — pilih tambah manual" : galleryBusy ? "Menunggu upload foto…" : pending ? "Mengupload & menyimpan…" : book ? "Simpan perubahan" : "Tambah buku"}</button>
         <Link href="/admin/books" className="admin-button secondary">Batal</Link>
         {book?.status === "published" && <Link href={`/buku/${book.slug}`} target="_blank" className="admin-link">Lihat halaman buku ↗</Link>}
       </section>
