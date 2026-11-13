@@ -17,4 +17,4 @@ export function isbnCheckError(code?: string) {
     ? "Scan ISBN belum siap: migrasi database ISBN belum tersedia. Minta pengelola menjalankan 20261109_isbn_scan.sql di Supabase, lalu coba lagi."
     : "Duplikat belum dapat diperiksa. Coba lagi atau tambah buku secara manual.";
 }
-export type IsbnLookup = { error: string } | { isbn: string; duplicate: { id: string; title: string } } | { isbn: string; metadata: IsbnMetadata; notice?: string; sources?: { name: string; url: string }[] };
+export type IsbnLookup = { error: string } | { isbn: string; duplicate: { id: string; title: string } } | { isbn: string; metadata: IsbnMetadata; savedDraft?: { id: string; title: string }; notice?: string; sources?: { name: string; url: string }[] };

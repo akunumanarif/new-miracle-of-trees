@@ -165,14 +165,67 @@ test("database duplicate races return the manual-entry instruction", async () =>
   assert.match((await api.saveBook({}, form({ isbn: "9780306406157", created_via_isbn_scan: "on" }))).error, /Tambah manual/);
 });
 
-function isbnLookup({ duplicate = { data: [], error: null }, fetch: fetchMock, authorize } = {}) {
+function isbnLookup({ duplicate = { data: [], error: null }, fetch: fetchMock, authorize, insert, revalidate = () => {} } = {}) {
   const metadataApi = load("lib/book-metadata.ts", { "./isbn": isbnTools, linkedom: { DOMParser } }, {}, { fetch: fetchMock, AbortSignal });
   return load("app/admin/books/isbn-actions.ts", {
-    "@/lib/admin": { requireAdmin: authorize ?? (async () => ({ supabase: { rpc: async () => duplicate } })) },
+    "@/lib/admin": { requireAdmin: authorize ?? (async () => ({ supabase: { rpc: async () => duplicate, from: () => ({ insert: fields => ({ select: () => ({ single: async () => insert(fields) }) }) }) } })) },
+    "next/cache": { revalidatePath: revalidate },
+    "@/lib/book-validation": validation,
     "@/lib/isbn": isbnTools,
     "@/lib/book-metadata": metadataApi,
   }, {}, { fetch: fetchMock, AbortSignal });
 }
+
+test("auto scan saves a draft without form fields or redirect and returns an edit reference", async () => {
+  const writes = [], paths = [];
+  const api = isbnLookup({
+    fetch: async () => ({ ok: true, json: async () => ({ items: [{ volumeInfo: { title: "A book", authors: ["Author"], pageCount: 32, publishedDate: "2025-01-01", industryIdentifiers: [{ identifier: "9780306406157" }] } }] }) }),
+    insert: fields => { writes.push(fields); return { data: { id }, error: null }; },
+    revalidate: path => paths.push(path),
+  });
+  const result = await api.addIsbnDraft("0-306-40615-2");
+  assert.equal(result.savedDraft.id, id);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].status, "draft");
+  assert.equal(writes[0].created_via_isbn_scan, true);
+  assert.equal(writes[0].isbn, "9780306406157");
+  assert.equal(writes[0].title, "A book");
+  assert.equal(writes[0].author, "Author");
+  assert.equal(writes[0].page_count, 32);
+  assert.equal(writes[0].publication_date, "2025-01-01");
+  assert.equal(writes[0].price, 0);
+  assert.equal(writes[0].category, "");
+  assert.equal(writes[0].age, "");
+  assert.ok(paths.includes("/admin/books"));
+});
+
+test("auto scan still creates an identifiable draft when metadata providers are unavailable", async () => {
+  let payload;
+  const api = isbnLookup({ fetch: async () => { throw new Error("offline"); }, insert: fields => { payload = fields; return { data: { id }, error: null }; } });
+  const result = await api.addIsbnDraft("9780306406157");
+  assert.equal(result.savedDraft.id, id);
+  assert.equal(payload.title, "Buku ISBN 9780306406157");
+  assert.match(payload.slug, /9780306406157$/);
+  assert.equal(payload.author, "");
+  assert.equal(payload.description, "");
+  assert.equal(payload.status, "draft");
+});
+
+test("auto draft refuses unauthorized, invalid, duplicate and unchecked ISBNs without writes", async () => {
+  await assert.rejects(isbnLookup({ authorize: async () => { throw new Error("LOGIN_REQUIRED"); } }).addIsbnDraft("9780306406157"), /LOGIN_REQUIRED/);
+  const insert = () => { assert.fail("Must not insert"); };
+  assert.ok((await isbnLookup({ insert }).addIsbnDraft("9780306406158")).error);
+  assert.ok((await isbnLookup({ insert, duplicate: { data: [{ id, title: "Existing" }], error: null } }).addIsbnDraft("9780306406157")).duplicate);
+  assert.ok((await isbnLookup({ insert, duplicate: { data: null, error: { code: "PGRST202" } } }).addIsbnDraft("9780306406157")).error);
+});
+
+test("auto draft reports duplicate races and uncertain writes without claiming success", async () => {
+  for (const error of [{ code: "23505", message: "ISBN already exists" }, { code: "", message: "Network error" }]) {
+    const result = await isbnLookup({ fetch: async () => ({ ok: false }), insert: () => ({ data: null, error }) }).addIsbnDraft("9780306406157");
+    assert.equal(result.savedDraft, undefined);
+    assert.match(result.error, error.code === "23505" ? /sudah ada/ : /Periksa daftar buku/);
+  }
+});
 
 test("ISBN lookup requires admin and never calls metadata provider for duplicates or check errors", async () => {
   const denied = isbnLookup({ authorize: async () => { throw new Error("LOGIN_REQUIRED"); } });

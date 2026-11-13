@@ -19,6 +19,7 @@ export default function BookForm({ book }: { book?: AdminBook }) {
   const [scanBusy, setScanBusy] = useState(false);
   const [scanBlocked, setScanBlocked] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
   const [formatEdited, setFormatEdited] = useState(false);
   const [state, action, pending] = useActionState(async (previous: ActionState, form: FormData) => {
     // React resets native file inputs after an action. Retain the chosen image
@@ -57,7 +58,8 @@ export default function BookForm({ book }: { book?: AdminBook }) {
     <input type="hidden" name="id" value={book?.id ?? ""} />
     <input type="hidden" name="revision" value={book?.revision ?? 0} />
     <div className="admin-editor-main">
-      {!book && <IsbnScanner disabled={pending} onBusy={setScanBusy} onBlocked={setScanBlocked} onManual={() => setScanned(false)} onAccept={(isbn, metadata) => {
+      {!book && <IsbnScanner disabled={pending} onBusy={setScanBusy} onBlocked={setScanBlocked} onSaved={() => setDraftSaved(true)} onManual={() => { setScanned(false); setDraftSaved(false); }} onAccept={(isbn, metadata) => {
+        setDraftSaved(false);
         setScanned(true);
         setValues(current => ({ ...current, isbn,
           title: current.title || metadata.title || "", author: current.author || metadata.author || "",
@@ -132,7 +134,7 @@ export default function BookForm({ book }: { book?: AdminBook }) {
         <label>Status buku<select name="status" value={values.status} onChange={event => field("status", event.target.value)}><option value="draft">Draft — belum ditampilkan</option><option value="published">Published — tampil di toko</option><option value="archived">Archived — disimpan di arsip</option></select></label>
         <p className="admin-help">Buku draft dan arsip tetap tersedia untuk stok opname. Pilih Archived untuk menarik buku dari toko.</p>
         {state.error && <p className="admin-message error" role="alert">{state.error}</p>}
-        <button className="admin-button" disabled={pending || galleryBusy || scanBusy || scanBlocked || Boolean(fileError)}>{scanBusy ? "Memeriksa ISBN…" : scanBlocked ? "Scan ditolak — pilih tambah manual" : galleryBusy ? "Menunggu upload foto…" : pending ? "Mengupload & menyimpan…" : book ? "Simpan perubahan" : "Tambah buku"}</button>
+        <button className="admin-button" disabled={pending || galleryBusy || scanBusy || scanBlocked || Boolean(fileError)}>{scanBusy ? "Memproses ISBN…" : draftSaved ? "Draft tersimpan — scan buku berikutnya" : scanBlocked ? "Scan ditolak — pilih tambah manual" : galleryBusy ? "Menunggu upload foto…" : pending ? "Mengupload & menyimpan…" : book ? "Simpan perubahan" : "Tambah buku"}</button>
         <Link href="/admin/books" className="admin-button secondary">Batal</Link>
         {book?.status === "published" && <Link href={`/buku/${book.slug}`} target="_blank" className="admin-link">Lihat halaman buku ↗</Link>}
       </section>

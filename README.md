@@ -83,7 +83,7 @@ Bagian **Foto tambahan** menerima maksimal 4 foto selain sampul utama. Upload di
 
 ## Tambah buku lewat scan ISBN
 
-Jalankan `supabase/migrations/20261109_isbn_scan.sql` setelah migrasi detail buku, lalu deploy kode terbaru. Di **Kelola buku → Tambah buku**, pilih **Scan barcode ISBN**, izinkan kamera, lalu arahkan barcode 978/979 ke kamera belakang HP. Akses kamera memerlukan HTTPS (atau localhost untuk pengembangan); URL HTTP lewat IP lokal tidak bisa mengakses kamera.
+Jalankan `supabase/migrations/20261109_isbn_scan.sql` setelah migrasi detail buku, lalu deploy kode terbaru. Di **Kelola buku → Tambah buku**, pilih **Scan barcode ISBN**, izinkan kamera, lalu arahkan barcode 978/979 ke kamera belakang HP. Saat scan aktif, gunakan **Ganti kamera** untuk berpindah antar kamera yang tersedia, misalnya kamera depan dan belakang. Akses kamera memerlukan HTTPS (atau localhost untuk pengembangan); URL HTTP lewat IP lokal tidak bisa mengakses kamera.
 
 ISBN divalidasi beserta checksum. Sistem memeriksa seluruh koleksi, termasuk draft dan arsip, dengan menyamakan tanda hubung/spasi dan ISBN-10/ISBN-13 yang setara. Jika duplikat, penyimpanan hasil scan diblokir; admin dapat membuka buku yang ada atau memilih **Tambah manual** untuk memeriksa dan memasukkan buku secara manual. Jalur manual tetap mengizinkan ISBN duplikat. Pemeriksaan ulang di server dan trigger database melindungi penyimpanan scan bersamaan untuk ISBN yang sama.
 
